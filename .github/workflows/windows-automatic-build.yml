@@ -109,20 +109,12 @@ jobs:
         if: always()
         run: |
           sccache --show-stats || echo "sccache not found"
-
-      - name: Pack artifacts
-        shell: pwsh
-        run: |
-          $version = $env:VERSION
-          $arch = "${{ matrix.arch }}"
-          Set-Location -Path C:\aseprite\build\bin
-          Compress-Archive -Path aseprite.exe -DestinationPath "aseprite-$version-windows-$arch.zip"
-
+  
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: C:\aseprite\build\bin\aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
+          path: C:\aseprite\build\bin\
 
       - name: Update BUILDS.json and push if changed
         shell: pwsh
