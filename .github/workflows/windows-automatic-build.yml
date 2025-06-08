@@ -168,18 +168,24 @@ jobs:
           path: C:\aseprite\build\bin
 
   release:
-    name: Create GitHub Release
-    needs: precheck
+    name: Publish GitHub Release
+    needs: [precheck, build]
+    if: needs.precheck.outputs.exists != 'true'
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.precheck.outputs.version }}
-    strategy:
-      matrix:
-        arch: [x64, x86]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aseprite-${{ env.VERSION }}-windows-x64
+          path: ./x64
+
+      - name: Download x86 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aseprite-${{ env.VERSION }}-windows-x86
+          path: ./x86
 
       - name: Fetch Aseprite changelog
         id: fetch_changelog
@@ -191,27 +197,29 @@ jobs:
           BODY=$(echo "$RESPONSE" | jq -r '.body // ""')
           echo "::set-output name=body::$BODY"
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         id: create_release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/create-release@v1
         with:
-          name: v${{ env.VERSION }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ env.VERSION }}
+          release_name: v${{ env.VERSION }}
           body: ${{ steps.fetch_changelog.outputs.body }}
+          draft: false
+          prerelease: false
 
-      - name: Download Aseprite Windows artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
-
-      - name: Upload asset to GitHub Release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload x64 asset
+        uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: "./aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}*"
-          asset_name: "aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}.zip"
-          asset_content_type: application/zip
+          asset_path: ./x64
+          asset_name: aseprite-${{ env.VERSION }}-windows-x64
+          asset_content_type: application/octet-stream
+
+      - name: Upload x86 asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./x86
+          asset_name: aseprite-${{ env.VERSION }}-windows-x86
+          asset_content_type: application/octet-stream
