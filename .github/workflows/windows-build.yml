@@ -2,13 +2,18 @@ name: Windows Build
 
 on:
   schedule:
-    - cron: '0 23 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       version:
         description: 'Aseprite version (e.g., 1.3.6)'
         required: true
         type: string
+
+run-name: >
+  ${{ github.event_name == 'workflow_dispatch' 
+      && format('Manual build: {0} ({1})', github.event.inputs.version, matrix.arch)
+      || format('Scheduled build: {0} ({1})', github.run_number, matrix.arch) }}
 
 jobs:
   build:
@@ -17,12 +22,19 @@ jobs:
       matrix:
         arch: [x64, x86]
     env:
-      SKIA_VERSION: m124-08a5439a6b
       BUILDS_JSON: BUILDS.json
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+
+      - name: Print sccache version
+        shell: pwsh
+        run: |
+          sccache --version
 
       - name: Get version
         id: version
@@ -69,9 +81,9 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ matrix.arch }}" -eq "x64") {
-            $skiaUrl = "https://github.com/aseprite/skia/releases/download/${{ env.SKIA_VERSION }}/Skia-Windows-Release-x64.zip"
+            $skiaUrl = "https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x64.zip"
           } else {
-            $skiaUrl = "https://github.com/aseprite/skia/releases/download/${{ env.SKIA_VERSION }}/Skia-Windows-Release-x86.zip"
+            $skiaUrl = "https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x86.zip"
           }
           Invoke-WebRequest -Uri $skiaUrl -OutFile "Skia-Windows.zip"
 
@@ -98,13 +110,21 @@ jobs:
             -DSKIA_DIR=C:\deps\skia `
             -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$arch `
             -DSKIA_LIBRARY=C:\deps\skia\out\$arch\skia.lib `
-            -G Ninja ..
+            -G Ninja `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build aseprite
         shell: pwsh
         run: |
           Set-Location -Path C:\aseprite\build
           ninja aseprite
+
+      - name: Show sccache stats
+        shell: pwsh
+        if: always()
+        run: |
+          sccache --show-stats || echo "sccache not found"
 
       - name: Pack artifacts
         shell: pwsh
@@ -120,13 +140,17 @@ jobs:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin\aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
 
-      - name: Update BUILDS.json
+      - name: Update BUILDS.json and push if changed
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = $env:VERSION
           $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
           $artifact = "aseprite-$version-windows-${{ matrix.arch }}.zip"
           $jsonPath = "$env:GITHUB_WORKSPACE\$env:BUILDS_JSON"
+          cd $env:GITHUB_WORKSPACE
+          # Load or create BUILDS.json
           if (Test-Path $jsonPath) {
             $json = Get-Content $jsonPath | ConvertFrom-Json
           } else {
@@ -137,9 +161,14 @@ jobs:
           }
           $json.$version | Add-Member -MemberType NoteProperty -Name $archKey -Value $artifact -Force
           $json | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
-
-      - name: Upload BUILDS.json
-        uses: actions/upload-artifact@v4
-        with:
-          name: BUILDS.json
-          path: ${{ github.workspace }}/BUILDS.json
+          # Commit and push if changed
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull
+          git add BUILDS.json
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Update BUILDS.json [skip ci]"
+            git push "https://x-access-token:${env:GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
+          } else {
+            echo "No changes to commit."
+          }
