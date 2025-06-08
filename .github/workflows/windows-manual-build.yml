@@ -9,11 +9,47 @@ on:
         type: string
 
 jobs:
+  precheck:
+    name: Fetch latest version & check release
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+      version: ${{ steps.setver.outputs.version }}
+    steps:
+      - name: Get latest Aseprite tag
+        id: setver
+        run: |
+          TAG=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest \
+            | jq -r .tag_name)
+          VER=${TAG#v}
+          echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Query GitHub API for release
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.setver.outputs.version }}"
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
+          if [ "$code" -eq 200 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    name: Build Aseprite
+    needs: precheck
+    if: needs.precheck.outputs.exists != 'true'
     runs-on: windows-latest
     strategy:
       matrix:
         arch: [x64, x86]
+
+    env:
+      VERSION: ${{ needs.precheck.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -41,27 +77,12 @@ jobs:
         run: |
           echo "VERSION=${{ github.event.inputs.version }}" >> $env:GITHUB_ENV
 
-      - name: Check if already built
-        id: check_built
+      - name: Download Aseprite source
         shell: pwsh
         run: |
-          $version = $env:VERSION
-          $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
-          $jsonPath = Join-Path $env:GITHUB_WORKSPACE 'BUILDS.json'
-          if (Test-Path $jsonPath) {
-            $json = Get-Content $jsonPath | ConvertFrom-Json
-            if ($json.$version -and $json.$version.$archKey) {
-              Write-Host "Version $version $archKey already built, skipping build."
-              echo "SKIP=true" >> $env:GITHUB_ENV
-            }
-          }
-
-      - name: Download Source
-        if: env.SKIP != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$($env:VERSION)/Aseprite-v$($env:VERSION)-Source.zip" -OutFile "Source.zip"
-
+          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$env:VERSION/Aseprite-v$env:VERSION-Source.zip" `
+            -OutFile Source.zip
+    
       - name: Unzip Source
         if: env.SKIP != 'true'
         shell: pwsh
@@ -127,31 +148,48 @@ jobs:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin
 
-      - name: Update BUILDS.json and push
-        if: matrix.arch == 'x64' && env.SKIP != 'true'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = $env:VERSION
-          $archKey = '64bit'
-          if ("${{ matrix.arch }}" -ne "x64") { $archKey = '32bit' }
-          $artifactBase = "aseprite-$version-windows-${{ matrix.arch }}"
-          $jsonPath = Join-Path $env:GITHUB_WORKSPACE 'BUILDS.json'
-          Push-Location $env:GITHUB_WORKSPACE
-          if (Test-Path $jsonPath) {
-            $json = Get-Content $jsonPath | ConvertFrom-Json
-          } else {
-            $json = @{}
-          }
-          if (-not $json.$version) {
-            $json | Add-Member NoteProperty -Name $version -Value @{}
-          }
-          $json.$version | Add-Member NoteProperty -Name $archKey -Value $artifactBase -Force
-          $json | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: needs.precheck.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.precheck.outputs.version }}
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aseprite-${{ env.VERSION }}-windows-x64
+          path: ./x64
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add BUILDS.json
-          git commit -m "Update BUILDS.json [skip ci]"
-          git push "https://x-access-token:${env:GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
+      - name: Download x86 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aseprite-${{ env.VERSION }}-windows-x86
+          path: ./x86
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: v${{ env.VERSION }}
+          release_name: v${{ env.VERSION }}
+          draft: false
+          prerelease: false
+
+      - name: Upload x64 asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./x64
+          asset_name: aseprite-${{ env.VERSION }}-windows-x64
+          asset_content_type: application/octet-stream
+
+      - name: Upload x86 asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./x86
+          asset_name: aseprite-${{ env.VERSION }}-windows-x86
+          asset_content_type: application/octet-stream
