@@ -173,7 +173,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [precheck, build]
     if: needs.precheck.outputs.exists != 'true'
     runs-on: ubuntu-latest
     env:
@@ -191,6 +191,16 @@ jobs:
           name: aseprite-${{ env.VERSION }}-windows-x86
           path: ./x86
 
+      - name: Fetch Aseprite changelog
+        id: fetch_changelog
+        run: |
+          echo "Fetching changelog for v$VERSION"
+          # Try to get the release by tag; fall back to empty body if not found
+          RESPONSE=$(curl -sSL -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/aseprite/aseprite/releases/tags/v$VERSION || echo '{}')
+          BODY=$(echo "$RESPONSE" | jq -r '.body // ""')
+          echo "::set-output name=body::$BODY"
+
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -198,6 +208,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ env.VERSION }}
           release_name: v${{ env.VERSION }}
+          body: ${{ steps.fetch_changelog.outputs.body }}
           draft: false
           prerelease: false
 
