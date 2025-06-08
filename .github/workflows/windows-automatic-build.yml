@@ -1,10 +1,9 @@
 name: Windows Build (Automatic Version)
 
 on:
-  workflow_dispatch:
   schedule:
-    # run every 24 hours
-    - cron: '0 */24 * * *'
+    - cron: '0 0 * * *'  # every 24 hours at midnight UTC
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,14 +15,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.3
-
-      - name: Print sccache version
-        shell: pwsh
-        run: |
-          sccache --version
 
       - name: Get version
         id: version
@@ -89,14 +80,12 @@ jobs:
           Set-Location -Path C:\aseprite
           New-Item -ItemType Directory -Path build | Out-Null
           Set-Location -Path build
-          cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DLAF_BACKEND=skia `
             -DSKIA_DIR=C:\deps\skia `
             -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$arch `
             -DSKIA_LIBRARY=C:\deps\skia\out\$arch\skia.lib `
-            -G Ninja `
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+            -G Ninja
 
       - name: Build aseprite
         shell: pwsh
@@ -104,17 +93,19 @@ jobs:
           Set-Location -Path C:\aseprite\build
           ninja aseprite
 
-      - name: Show sccache stats
+      - name: Pack artifacts
         shell: pwsh
-        if: always()
         run: |
-          sccache --show-stats || echo "sccache not found"
-  
+          $version = $env:VERSION
+          $arch = "${{ matrix.arch }}"
+          Set-Location -Path C:\aseprite\build\bin
+          Compress-Archive -Path aseprite.exe -DestinationPath "aseprite-$version-windows-$arch.zip"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: C:\aseprite\build\bin\
+          path: C:\aseprite\build\bin\aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
 
       - name: Update BUILDS.json and push if changed
         shell: pwsh
