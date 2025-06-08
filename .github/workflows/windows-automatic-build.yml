@@ -100,7 +100,7 @@ jobs:
           Set-Location build
           cmake `
             -G Ninja .. `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_BUILD_TYPE=Release `
             -DLAF_BACKEND=skia `
             -DSKIA_DIR=C:\deps\skia `
             -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$archDir `
