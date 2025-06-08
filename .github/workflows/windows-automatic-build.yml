@@ -133,6 +133,29 @@ jobs:
         run: |
           Push-Location C:\aseprite\build
           ninja aseprite
+          $libcrypto = $null
+          if ("${{ matrix.arch }}" -eq "x64") {
+            if (Test-Path -Path "C:/Windows/SysWOW64/libcrypto-1_1-x64.dll") {
+              $libcrypto = "C:/Windows/SysWOW64.libcrypto-1_1-x64.dll"
+            } else {
+              if (Test-Path -Path "C:/Windows/System32/libcrypto-1_1-x64.dll") {
+                $libcrypto = "C:/Windows/System32/libcrypto-1_1-x64.dll"
+              }
+            }
+          } else {
+            if ("${{ matrix.arch }}" -eq "x86") {
+              if (Test-Path -Path "C:/Windows/System32/libcrypto-1_1-x64.dll") {
+                $libcrypto = "C:/Windows/System32/libcrypto-1_1-x64.dll"
+              } else {
+                if (Test-Path -Path "C:/Windows/System32/libcrypto-1_1.dll") {
+                  $libcrypto = "C:/Windows/System32/libcrypto-1_1.dll"
+                }
+              }
+            }
+          }
+          if ($libcrypto -ne $null) {
+            Copy-Item -Path $libcrypto -Destination "./bin"
+          }
 
       - name: Upload bin directory
         if: env.SKIP != 'true'
