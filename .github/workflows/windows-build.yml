@@ -21,8 +21,6 @@ jobs:
     strategy:
       matrix:
         arch: [x64, x86]
-    env:
-      BUILDS_JSON: BUILDS.json
 
     steps:
       - name: Checkout repository
@@ -54,7 +52,7 @@ jobs:
         run: |
           $version = $env:VERSION
           $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
-          $jsonPath = "$env:GITHUB_WORKSPACE\$env:BUILDS_JSON"
+          $jsonPath = "$env:GITHUB_WORKSPACE\BUILDS"
           if (Test-Path $jsonPath) {
             $json = Get-Content $jsonPath | ConvertFrom-Json
             if ($json.$version -and $json.$version.$archKey) {
@@ -140,17 +138,17 @@ jobs:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin\aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
 
-      - name: Update BUILDS.json and push if changed
+      - name: Update BUILDS and push if changed
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = $env:VERSION
           $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
-          $artifact = "aseprite-$version-windows-${{ matrix.arch }}.zip"
-          $jsonPath = "$env:GITHUB_WORKSPACE\$env:BUILDS_JSON"
+          $artifactBase = "aseprite-$version-windows-${{ matrix.arch }}"
+          $jsonPath = "$env:GITHUB_WORKSPACE\BUILDS"
           cd $env:GITHUB_WORKSPACE
-          # Load or create BUILDS.json
+          # Load or create BUILDS
           if (Test-Path $jsonPath) {
             $json = Get-Content $jsonPath | ConvertFrom-Json
           } else {
@@ -159,15 +157,15 @@ jobs:
           if (-not $json.$version) {
             $json | Add-Member -MemberType NoteProperty -Name $version -Value (@{})
           }
-          $json.$version | Add-Member -MemberType NoteProperty -Name $archKey -Value $artifact -Force
+          $json.$version | Add-Member -MemberType NoteProperty -Name $archKey -Value $artifactBase -Force
           $json | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
           # Commit and push if changed
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git pull
-          git add BUILDS.json
+          git add BUILDS
           if (-not (git diff --cached --quiet)) {
-            git commit -m "Update BUILDS.json [skip ci]"
+            git commit -m "Update BUILDS [skip ci]"
             git push "https://x-access-token:${env:GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
           } else {
             echo "No changes to commit."
