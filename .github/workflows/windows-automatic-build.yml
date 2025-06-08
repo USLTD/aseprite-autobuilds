@@ -99,7 +99,7 @@ jobs:
           New-Item -ItemType Directory -Path build -Force | Out-Null
           Set-Location build
           cmake `
-            -G Ninja `
+            -G Ninja .. `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DLAF_BACKEND=skia `
             -DSKIA_DIR=C:\deps\skia `
