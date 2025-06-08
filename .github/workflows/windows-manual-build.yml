@@ -10,20 +10,17 @@ on:
 
 jobs:
   precheck:
-    name: Fetch latest version & check release
+    name: Check for existing release
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.check.outputs.exists }}
       version: ${{ steps.setver.outputs.version }}
     steps:
-      - name: Get latest Aseprite tag
+      - name: Read version input
         id: setver
         run: |
-          TAG=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest \
-            | jq -r .tag_name)
-          VER=${TAG#v}
-          echo "version=$VER" >> $GITHUB_OUTPUT
-
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+    
       - name: Query GitHub API for release
         id: check
         env:
