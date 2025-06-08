@@ -28,7 +28,7 @@ jobs:
             ${{ runner.os }}-sccache-
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.2.0
+        uses: mozilla-actions/sccache-action@v0.0.8
 
       - name: Get version
         id: version
