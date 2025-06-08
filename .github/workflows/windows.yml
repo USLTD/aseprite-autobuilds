@@ -1,0 +1,145 @@
+name: Windows Build
+
+on:
+  schedule:
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Aseprite version (e.g., 1.3.6)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, x86]
+    env:
+      SKIA_VERSION: m124-08a5439a6b
+      BUILDS_JSON: BUILDS.json
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            echo "VERSION=${{ github.event.inputs.version }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          } else {
+            $latest = Invoke-RestMethod https://api.github.com/repos/aseprite/aseprite/releases/latest
+            $version = $latest.tag_name.TrimStart("v")
+            echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+
+      - name: Check if already built
+        id: check_built
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
+          $jsonPath = "$env:GITHUB_WORKSPACE\$env:BUILDS_JSON"
+          if (Test-Path $jsonPath) {
+            $json = Get-Content $jsonPath | ConvertFrom-Json
+            if ($json.$version -and $json.$version.$archKey) {
+              Write-Host "$version $archKey already built, skipping."
+              exit 1
+            }
+          }
+
+      - name: Download Source
+        id: download_source
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$version/Aseprite-v$version-Source.zip" -OutFile "Aseprite-v$version-Source.zip"
+
+      - name: Unzip Source
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          New-Item -ItemType Directory -Path C:\aseprite | Out-Null
+          Expand-Archive -Path "Aseprite-v$version-Source.zip" -DestinationPath C:\aseprite -Force
+
+      - name: Download Skia
+        shell: pwsh
+        run: |
+          if ("${{ matrix.arch }}" -eq "x64") {
+            $skiaUrl = "https://github.com/aseprite/skia/releases/download/${{ env.SKIA_VERSION }}/Skia-Windows-Release-x64.zip"
+          } else {
+            $skiaUrl = "https://github.com/aseprite/skia/releases/download/${{ env.SKIA_VERSION }}/Skia-Windows-Release-x86.zip"
+          }
+          Invoke-WebRequest -Uri $skiaUrl -OutFile "Skia-Windows.zip"
+
+      - name: Unzip Skia
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\deps\skia | Out-Null
+          Expand-Archive -Path "Skia-Windows.zip" -DestinationPath C:\deps\skia -Force
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Configure build
+        shell: pwsh
+        run: |
+          $arch = if ("${{ matrix.arch }}" -eq "x64") { "Release-x64" } else { "Release-x86" }
+          Set-Location -Path C:\aseprite
+          New-Item -ItemType Directory -Path build | Out-Null
+          Set-Location -Path build
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DLAF_BACKEND=skia `
+            -DSKIA_DIR=C:\deps\skia `
+            -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$arch `
+            -DSKIA_LIBRARY=C:\deps\skia\out\$arch\skia.lib `
+            -G Ninja ..
+
+      - name: Build aseprite
+        shell: pwsh
+        run: |
+          Set-Location -Path C:\aseprite\build
+          ninja aseprite
+
+      - name: Pack artifacts
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $arch = "${{ matrix.arch }}"
+          Set-Location -Path C:\aseprite\build\bin
+          Compress-Archive -Path aseprite.exe -DestinationPath "aseprite-$version-windows-$arch.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
+          path: C:\aseprite\build\bin\aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
+
+      - name: Update BUILDS.json
+        shell: pwsh
+        run: |
+          $version = $env:VERSION
+          $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
+          $artifact = "aseprite-$version-windows-${{ matrix.arch }}.zip"
+          $jsonPath = "$env:GITHUB_WORKSPACE\$env:BUILDS_JSON"
+          if (Test-Path $jsonPath) {
+            $json = Get-Content $jsonPath | ConvertFrom-Json
+          } else {
+            $json = @{}
+          }
+          if (-not $json.$version) {
+            $json | Add-Member -MemberType NoteProperty -Name $version -Value (@{})
+          }
+          $json.$version | Add-Member -MemberType NoteProperty -Name $archKey -Value $artifact -Force
+          $json | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
+
+      - name: Upload BUILDS.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: BUILDS.json
+          path: ${{ github.workspace }}/BUILDS.json
