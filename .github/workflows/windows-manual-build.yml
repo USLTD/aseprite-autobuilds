@@ -172,7 +172,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: build # This job depends on the 'build' job completing successfully
-    if: env.SKIP != 'true'
+    if: needs.precheck.outputs.exists != 'true' # Only create a release if one doesn't already exist
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
