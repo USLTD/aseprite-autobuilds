@@ -178,13 +178,13 @@ jobs:
       - name: Download x64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: aseprite-${{ env.VERSION }}-windows-x64
+          name: aseprite-v${{ env.VERSION }}-windows-x64
           path: ./x64
 
       - name: Download x86 artifact
         uses: actions/download-artifact@v4
         with:
-          name: aseprite-${{ env.VERSION }}-windows-x86
+          name: aseprite-v${{ env.VERSION }}-windows-x86
           path: ./x86
 
       - name: Fetch Aseprite changelog
@@ -213,7 +213,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./x64
-          asset_name: aseprite-${{ env.VERSION }}-windows-x64
+          asset_name: aseprite-v${{ env.VERSION }}-windows-x64
           asset_content_type: application/octet-stream
 
       - name: Upload x86 asset
@@ -221,5 +221,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./x86
-          asset_name: aseprite-${{ env.VERSION }}-windows-x86
+          asset_name: aseprite-v${{ env.VERSION }}-windows-x86
           asset_content_type: application/octet-stream
