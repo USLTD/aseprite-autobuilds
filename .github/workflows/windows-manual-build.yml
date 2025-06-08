@@ -18,20 +18,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.3
-
-      - name: Print sccache version
-        shell: pwsh
-        run: |
-          sccache --version
-
-      - name: Get version
+      - name: Set version
         id: version
         shell: pwsh
         run: |
-          echo "VERSION=${{ github.event.inputs.version }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "VERSION=${{ github.event.inputs.version }}" >> $env:GITHUB_ENV
 
       - name: Check if already built
         id: check_built
@@ -39,112 +33,107 @@ jobs:
         run: |
           $version = $env:VERSION
           $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
-          $jsonPath = "$env:GITHUB_WORKSPACE\BUILDS.json"
+          $jsonPath = Join-Path $env:GITHUB_WORKSPACE 'BUILDS.json'
           if (Test-Path $jsonPath) {
             $json = Get-Content $jsonPath | ConvertFrom-Json
             if ($json.$version -and $json.$version.$archKey) {
-              Write-Host "$version $archKey already built, skipping."
-              exit 1
+              Write-Host "Version $version $archKey already built, skipping build."
+              echo "SKIP=true" >> $env:GITHUB_ENV
             }
           }
 
       - name: Download Source
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          $version = $env:VERSION
-          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$version/Aseprite-v$version-Source.zip" -OutFile "Aseprite-v$version-Source.zip"
+          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$($env:VERSION)/Aseprite-v$($env:VERSION)-Source.zip" -OutFile "Source.zip"
 
       - name: Unzip Source
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          $version = $env:VERSION
-          New-Item -ItemType Directory -Path C:\aseprite | Out-Null
-          Expand-Archive -Path "Aseprite-v$version-Source.zip" -DestinationPath C:\aseprite -Force
+          New-Item -ItemType Directory -Path C:\aseprite -Force | Out-Null
+          Expand-Archive -Path "Source.zip" -DestinationPath C:\aseprite -Force
 
       - name: Download Skia
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          if ("${{ matrix.arch }}" -eq "x64") {
-            $skiaUrl = "https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x64.zip"
+          $url = if ("${{ matrix.arch }}" -eq "x64") {
+            'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x64.zip'
           } else {
-            $skiaUrl = "https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x86.zip"
+            'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x86.zip'
           }
-          Invoke-WebRequest -Uri $skiaUrl -OutFile "Skia-Windows.zip"
+          Invoke-WebRequest -Uri $url -OutFile "Skia.zip"
 
       - name: Unzip Skia
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path C:\deps\skia | Out-Null
-          Expand-Archive -Path "Skia-Windows.zip" -DestinationPath C:\deps\skia -Force
+          New-Item -ItemType Directory -Path C:\deps\skia -Force | Out-Null
+          Expand-Archive -Path "Skia.zip" -DestinationPath C:\deps\skia -Force
 
       - name: Setup MSVC
+        if: env.SKIP != 'true'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch }}
 
       - name: Configure build
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          $arch = if ("${{ matrix.arch }}" -eq "x64") { "Release-x64" } else { "Release-x86" }
-          Set-Location -Path C:\aseprite
-          New-Item -ItemType Directory -Path build | Out-Null
-          Set-Location -Path build
-          cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+          $archDir = if ("${{ matrix.arch }}" -eq "x64") { "Release-x64" } else { "Release-x86" }
+          Push-Location C:\aseprite
+          New-Item -ItemType Directory -Path build -Force | Out-Null
+          Set-Location build
+          cmake `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DLAF_BACKEND=skia `
             -DSKIA_DIR=C:\deps\skia `
-            -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$arch `
-            -DSKIA_LIBRARY=C:\deps\skia\out\$arch\skia.lib `
-            -G Ninja `
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+            -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$archDir `
+            -DSKIA_LIBRARY=C:\deps\skia\out\$archDir\skia.lib
 
       - name: Build aseprite
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
-          Set-Location -Path C:\aseprite\build
+          Push-Location C:\aseprite\build
           ninja aseprite
 
-      - name: Show sccache stats
-        shell: pwsh
-        if: always()
-        run: |
-          sccache --show-stats || echo "sccache not found"
-
-      - name: Upload artifact
+      - name: Upload bin directory
+        if: env.SKIP != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aseprite-${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: C:\aseprite\build\bin\
+          path: C:\aseprite\build\bin
 
-      - name: Update BUILDS.json and push if changed
+      - name: Update BUILDS.json and push
+        if: matrix.arch == 'x64' && env.SKIP != 'true'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = $env:VERSION
-          $archKey = if ("${{ matrix.arch }}" -eq "x64") { "64bit" } else { "32bit" }
+          $archKey = '64bit'
+          if ("${{ matrix.arch }}" -ne "x64") { $archKey = '32bit' }
           $artifactBase = "aseprite-$version-windows-${{ matrix.arch }}"
-          $jsonPath = "$env:GITHUB_WORKSPACE\BUILDS.json"
-          cd $env:GITHUB_WORKSPACE
-          # Load or create BUILDS.json
+          $jsonPath = Join-Path $env:GITHUB_WORKSPACE 'BUILDS.json'
+          Push-Location $env:GITHUB_WORKSPACE
           if (Test-Path $jsonPath) {
             $json = Get-Content $jsonPath | ConvertFrom-Json
           } else {
             $json = @{}
           }
           if (-not $json.$version) {
-            $json | Add-Member -MemberType NoteProperty -Name $version -Value (@{})
+            $json | Add-Member NoteProperty -Name $version -Value @{}
           }
-          $json.$version | Add-Member -MemberType NoteProperty -Name $archKey -Value $artifactBase -Force
+          $json.$version | Add-Member NoteProperty -Name $archKey -Value $artifactBase -Force
           $json | ConvertTo-Json -Depth 10 | Set-Content $jsonPath
-          # Commit and push if changed
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git pull
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add BUILDS.json
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "Update BUILDS.json [skip ci]"
-            git push "https://x-access-token:${env:GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
-          } else {
-            echo "No changes to commit."
-          }
+          git commit -m "Update BUILDS.json [skip ci]"
+          git push "https://x-access-token:${env:GITHUB_TOKEN}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
