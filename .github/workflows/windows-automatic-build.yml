@@ -106,7 +106,9 @@ jobs:
             -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$archDir `
             -DSKIA_LIBRARY=C:\deps\skia\out\$archDir\skia.lib `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_C_FLAGS="/FS" `
+            -DCMAKE_CXX_FLAGS="/FS"
 
       - name: Build aseprite
         if: env.SKIP != 'true'
