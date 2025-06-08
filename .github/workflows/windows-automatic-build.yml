@@ -2,7 +2,7 @@ name: Windows Build (Automatic Version)
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # every 24 hours at midnight UTC
+    - cron: '0 0/24 * * *'  # every 24 hours at midnight UTC
   workflow_dispatch:
 
 jobs:
