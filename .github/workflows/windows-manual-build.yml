@@ -21,6 +21,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Restore sccache cache
+      - name: Cache sccache directory
+        uses: actions/cache@v3
+        with:
+          path: |
+            %USERPROFILE%\.cache\sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-
+
+      # Start the sccache service
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.2.0
+
       - name: Set version
         id: version
         shell: pwsh
@@ -93,7 +107,9 @@ jobs:
             -DLAF_BACKEND=skia `
             -DSKIA_DIR=C:\deps\skia `
             -DSKIA_LIBRARY_DIR=C:\deps\skia\out\$archDir `
-            -DSKIA_LIBRARY=C:\deps\skia\out\$archDir\skia.lib
+            -DSKIA_LIBRARY=C:\deps\skia\out\$archDir\skia.lib `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build aseprite
         if: env.SKIP != 'true'
