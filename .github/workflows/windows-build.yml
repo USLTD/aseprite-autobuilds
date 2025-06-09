@@ -71,10 +71,10 @@ jobs:
 
       - name: Checkout autobuild workflow repo
         uses: actions/checkout@v4
-        with:
-          repository: "aseprite/aseprite"
-          ref: ${{ github.event.inputs.version }}
-          submodules: "recursive"
+
+      - name: Clone Aseprite source
+        run: |
+          git clone --recursive --branch v1.3.5 https://github.com/aseprite/aseprite.git C:\aseprite
 
       - name: Setup MSVC
         if: env.SKIP != 'true'
