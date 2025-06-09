@@ -49,6 +49,7 @@ jobs:
         arch: [x64, x86]
     env:
       VERSION: ${{ needs.precheck.outputs.version }}
+      SCCACHE_GHA_ENABLED: "true"
 
     steps:
       - name: Checkout repository
