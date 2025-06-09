@@ -1,0 +1,12 @@
+on:
+  workflow_dispatch:
+  schedule:
+    # run every 24 hours
+    - cron: '0 */24 * * *'
+name: Windows builds
+jobs:
+  excavate:
+    name: Excavate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@main
