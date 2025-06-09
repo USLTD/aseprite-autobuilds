@@ -1,12 +1,13 @@
-name: Windows Build (Automatic Version)
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  schedule:
+    # run every 24 hours
+    - cron: '0 */24 * * *'
 
 permissions:
   contents: write
-
-on:
-  schedule:
-    - cron: '0 0/24 * * *'  # every 24 hours at midnight UTC
-  workflow_dispatch:
 
 jobs:
   precheck:
