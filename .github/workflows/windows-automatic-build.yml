@@ -10,7 +10,7 @@ on:
 
 jobs:
   precheck:
-    name: Fetch latest version & check release
+    name: Fetch latest version & Check for existing release
     runs-on: ubuntu-latest
     outputs:
       exists: ${{ steps.check.outputs.exists }}
@@ -65,10 +65,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sccache-
 
+
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.8
 
-      - name: Get version
+      - name: Set version
         id: version
         shell: pwsh
         run: |
