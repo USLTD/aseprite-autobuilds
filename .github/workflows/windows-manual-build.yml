@@ -1,5 +1,7 @@
 name: Windows Build (Manual Version)
 
+permissions:
+  contents: write
 on:
   workflow_dispatch:
     inputs:
@@ -38,13 +40,13 @@ jobs:
 
   build:
     name: Build Aseprite
+    runs-on: windows-latest
     needs: precheck
     if: needs.precheck.outputs.exists != 'true'
-    runs-on: windows-latest
+
     strategy:
       matrix:
         arch: [x64, x86]
-
     env:
       VERSION: ${{ needs.precheck.outputs.version }}
 
@@ -54,7 +56,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Restore sccache cache
       - name: Cache sccache directory
         uses: actions/cache@v3
         with:
@@ -64,7 +65,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sccache-
 
-      # Start the sccache service
+
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.8
 
