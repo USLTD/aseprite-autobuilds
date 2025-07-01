@@ -21,42 +21,32 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Get triggering workflow run ID
-        id: run_info
-        run: |
-          # If manually dispatched, use the provided run_id. Otherwise, get it from the workflow_run event.
-          RUN_ID=${{ github.event.inputs.run_id || github.event.workflow_run.id }}
-          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+      - name: Download artifacts from build workflow
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run_id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          path: artifacts
+          # Continue even if no artifacts are found, so we can handle it gracefully
+          continue-on-error: true
 
-      - name: Get version from artifact name
+      - name: Get version from artifact directory
+        if: steps.download.outcome == 'success'
         id: version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get the list of artifacts from the source workflow run
-          artifacts_json=$(gh api "repos/${{ github.repository }}/actions/runs/${{ steps.run_info.outputs.run_id }}/artifacts")
-          
-          # Find the first artifact that matches the expected pattern and extract the version number
-          VERSION=$(echo "$artifacts_json" | jq -r '.artifacts[] | .name' | sed -n 's/aseprite-v\left([^-]*\)-windows-.*/\1/p' | head -n 1)
+          # Find the first directory in 'artifacts' and extract the version from its name
+          VERSION=$(ls artifacts | grep -oP 'aseprite-v\K[^-]*' | head -n 1)
           
           if [ -z "$VERSION" ]; then
-            echo "No build artifacts found for workflow run ${{ steps.run_info.outputs.run_id }}. Nothing to release."
+            echo "Could not determine version from downloaded artifacts. No release will be created."
             echo "version_found=false" >> $GITHUB_OUTPUT
           else
             echo "Found version $VERSION to release."
             echo "version_found=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
-
-      - name: Download artifacts from build workflow
-        if: steps.version.outputs.version_found == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Explicitly specify the repository where the build workflow ran
-          repository: ${{ github.repository }}
-          run_id: ${{ steps.run_info.outputs.run_id }}
-          path: artifacts
 
       - name: Get Aseprite release info
         if: steps.version.outputs.version_found == 'true'
