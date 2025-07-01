@@ -24,11 +24,9 @@ jobs:
       - name: Download artifacts from build workflow
         id: download
         uses: actions/download-artifact@v4
-        # This is a step-level keyword to prevent the job from failing if no artifacts are found
         continue-on-error: true
         with:
-          # Corrected input names with hyphens
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }} # Standard token is fine for downloading from the same repo
           repository: ${{ github.repository }}
           run-id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
           path: artifacts
@@ -37,7 +35,6 @@ jobs:
         if: steps.download.outcome == 'success'
         id: version
         run: |
-          # Find the first directory in 'artifacts' and extract the version from its name
           VERSION=$(ls artifacts | grep -oP 'aseprite-v\K[^-]*' | head -n 1)
           
           if [ -z "$VERSION" ]; then
@@ -53,9 +50,9 @@ jobs:
         if: steps.version.outputs.version_found == 'true'
         id: setver
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the PAT for this step to query the private repo if needed, though aseprite/aseprite is public
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          # Fetch the corresponding release info from aseprite/aseprite
           release_info=$(gh release view "v${{ steps.version.outputs.version }}" --repo aseprite/aseprite --json name,body)
           TITLE=$(echo "$release_info" | jq -r .name)
           CHANGELOG=$(echo "$release_info" | jq -r .body)
@@ -67,10 +64,11 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
+      - name: Create Release in private repo
         if: steps.version.outputs.version_found == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # IMPORTANT: Use the PAT for authentication to create the release
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           CHANGELOG: ${{ steps.setver.outputs.changelog }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -80,4 +78,4 @@ jobs:
             --notes-file <(echo "$CHANGELOG") \
             artifacts/aseprite-v$VERSION-windows-x64/* \
             artifacts/aseprite-v$VERSION-windows-x86/*
-          echo "Release v$VERSION created."
+          echo "Release v$VERSION created in USLTD/aseprite-builds."
