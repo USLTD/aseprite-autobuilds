@@ -21,9 +21,11 @@ jobs:
     steps:
       - name: Get latest Aseprite release info
         id: setver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_info=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest)
-          TAG=$(echo "$release_info" | jq -r .tag_name)
+          release_info=$(gh release view --repo aseprite/aseprite --json tagName,name,body)
+          TAG=$(echo "$release_info" | jq -r .tagName)
           VER=${TAG#v}
           TITLE=$(echo "$release_info" | jq -r .name)
           CHANGELOG=$(echo "$release_info" | jq -r .body)
@@ -37,18 +39,17 @@ jobs:
           CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
           echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
 
-      - name: Query GitHub API for release
+      - name: Check for existing release in target repo
         id: check
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.setver.outputs.version }}"
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/USLTD/aseprite-builds/releases/tags/$TAG")
-          if [ "$code" -eq 200 ]; then
+          if gh release view "$TAG" --repo USLTD/aseprite-builds >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
+            echo "Release $TAG does not exist. Proceeding."
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
@@ -83,19 +84,17 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.8
 
-      - name: Set version
-        id: version
-        shell: pwsh
-        run: |
-          $latest = Invoke-RestMethod https://api.github.com/repos/aseprite/aseprite/releases/latest
-          $ver = $latest.tag_name.TrimStart('v')
-          echo "VERSION=$ver" >> $env:GITHUB_ENV
-
       - name: Download Aseprite source
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/releases/download/v$env:VERSION/Aseprite-v$env:VERSION-Source.zip" `
-            -OutFile Source.zip
+          $source_url = gh release view "v${{ env.VERSION }}" --repo aseprite/aseprite --json assets --jq '.assets[] | select(.name | test("Aseprite-v.+-Source.zip$")) | .url'
+          if ([string]::IsNullOrEmpty($source_url)) {
+            Write-Error "Could not find Aseprite source zip in release assets."
+            exit 1
+          }
+          Invoke-WebRequest -Uri $source_url -OutFile Source.zip
 
       - name: Unzip Source
         if: env.SKIP != 'true'
@@ -178,19 +177,11 @@ jobs:
             Copy-Item -Path $libcrypto -Destination "./bin"
           }
 
-      - name: Create Zip Archive
-        shell: pwsh
-        run: |
-          $artifactName = "aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}"
-          Compress-Archive -Path C:\aseprite\build\bin\* -DestinationPath "C:\aseprite\build\$artifactName.zip"
-          echo "artifact_path=C:\aseprite\build\$artifactName.zip" >> $GITHUB_OUTPUT
-        id: zip_artifact
-
-      - name: Upload artifact for release
+      - name: Upload bin directory for release
         uses: actions/upload-artifact@v4
         with:
-          name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: ${{ steps.zip_artifact.outputs.artifact_path }}
+          name: bin-${{ matrix.arch }}
+          path: C:\aseprite\build\bin
 
   release:
     name: Create GitHub Release
@@ -211,5 +202,6 @@ jobs:
             --repo USLTD/aseprite-builds \
             --title "${{ needs.precheck.outputs.title }}" \
             --notes "${{ needs.precheck.outputs.changelog }}" \
-            artifacts/**/*.zip
+            artifacts/bin-x64/* \
+            artifacts/bin-x86/*
           echo "Release v${{ needs.precheck.outputs.version }} created."
