@@ -1,4 +1,4 @@
-name: Windows Build
+name: Build
 
 on:
   workflow_dispatch:
@@ -177,21 +177,11 @@ jobs:
             Copy-Item -Path $libcrypto -Destination "./bin"
           }
 
-      - name: Create Zip Archive
-        if: env.SKIP != 'true'
-        shell: pwsh
-        run: |
-          $artifactName = "aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}"
-          Compress-Archive -Path C:\aseprite\build\bin\* -DestinationPath "C:\aseprite\build\$artifactName.zip"
-          echo "artifact_path=C:\aseprite\build\$artifactName.zip" >> $GITHUB_OUTPUT
-        id: zip_artifact
-
-      - name: Upload artifact for release
-        if: env.SKIP != 'true'
+      - name: Upload bin directory for release
         uses: actions/upload-artifact@v4
         with:
           name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: ${{ steps.zip_artifact.outputs.artifact_path }}
+          path: C:\aseprite\build\bin
 
   release:
     name: Create GitHub Release
@@ -207,10 +197,12 @@ jobs:
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG: ${{ needs.precheck.outputs.changelog }}
         run: |
           gh release create "v${{ needs.precheck.outputs.version }}" \
-            --repo USLTD/aseprite-builds \
+            -R USLTD/aseprite-builds \
             --title "${{ needs.precheck.outputs.title }}" \
-            --notes "${{ needs.precheck.outputs.changelog }}" \
-            artifacts/**/*.zip
+            --notes-file <(echo "$CHANGELOG") \
+            artifacts/aseprite-v${{ needs.precheck.outputs.version }}-windows-x64/* \
+            artifacts/aseprite-v${{ needs.precheck.outputs.version }}-windows-x86/*
           echo "Release v${{ needs.precheck.outputs.version }} created."
