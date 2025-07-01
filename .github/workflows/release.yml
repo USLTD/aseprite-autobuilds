@@ -5,52 +5,62 @@ on:
     workflows: ["Build"]
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'The ID of the "Build" workflow run to release.'
+        required: true
 
 permissions:
-  contents: write
+  actions: read   # To read artifacts from the triggering workflow
+  contents: write # To create the GitHub Release
 
 jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
+      - name: Download artifacts from build workflow
+        uses: actions/download-artifact@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          path: artifacts
+
       - name: Get latest Aseprite release info
         id: setver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_info=$(gh release view --repo aseprite/aseprite --json tagName,name,body)
-          TAG=$(echo "$release_info" | jq -r .tagName)
-          VER=${TAG#v}
+          # The artifact directory contains the version number.
+          # We find the first directory in 'artifacts' and parse the version from its name.
+          ARTIFACT_DIR_NAME=$(ls -d artifacts/*/ | head -n 1)
+          VERSION=$(echo "$ARTIFACT_DIR_NAME" | sed -n 's/.*aseprite-v\([^-]*\)-.*/\1/p')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Fetch the corresponding release info from aseprite/aseprite
+          release_info=$(gh release view "v$VERSION" --repo aseprite/aseprite --json name,body)
           TITLE=$(echo "$release_info" | jq -r .name)
           CHANGELOG=$(echo "$release_info" | jq -r .body)
           
-          echo "version=$VER" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT
-          
           {
             echo "changelog<<EOF"
             echo "$CHANGELOG"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Download artifacts from build workflow
-        uses: actions/download-artifact@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ github.event.workflow_run.id }}
-          path: artifacts
-
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANGELOG: ${{ steps.setver.outputs.changelog }}
         run: |
-          gh release create "v${{ steps.setver.outputs.version }}" \
+          VERSION="${{ steps.setver.outputs.version }}"
+          gh release create "v$VERSION" \
             -R USLTD/aseprite-builds \
             --title "${{ steps.setver.outputs.title }}" \
             --notes-file <(echo "$CHANGELOG") \
-            artifacts/aseprite-v${{ steps.setver.outputs.version }}-windows-x64/* \
-            artifacts/aseprite-v${{ steps.setver.outputs.version }}-windows-x86/*
-          echo "Release v${{ steps.setver.outputs.version }} created."
+            artifacts/aseprite-v$VERSION-windows-x64/* \
+            artifacts/aseprite-v$VERSION-windows-x86/*
+          echo "Release v$VERSION created."
