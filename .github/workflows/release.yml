@@ -33,11 +33,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get the list of artifacts from the workflow run
+          # Get the list of artifacts from the source workflow run
           artifacts_json=$(gh api "repos/${{ github.repository }}/actions/runs/${{ steps.run_info.outputs.run_id }}/artifacts")
           
           # Find the first artifact that matches the expected pattern and extract the version number
-          VERSION=$(echo "$artifacts_json" | jq -r '.artifacts[] | .name' | sed -n 's/aseprite-v\([^-]*\)-windows-.*/\1/p' | head -n 1)
+          VERSION=$(echo "$artifacts_json" | jq -r '.artifacts[] | .name' | sed -n 's/aseprite-v\left([^-]*\)-windows-.*/\1/p' | head -n 1)
           
           if [ -z "$VERSION" ]; then
             echo "No build artifacts found for workflow run ${{ steps.run_info.outputs.run_id }}. Nothing to release."
@@ -53,6 +53,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Explicitly specify the repository where the build workflow ran
+          repository: ${{ github.repository }}
           run_id: ${{ steps.run_info.outputs.run_id }}
           path: artifacts
 
