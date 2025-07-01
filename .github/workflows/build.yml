@@ -1,4 +1,4 @@
-name: Build
+name: Windows Build
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
     - cron: '0 */24 * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   precheck:
@@ -16,28 +16,15 @@ jobs:
     outputs:
       exists: ${{ steps.check.outputs.exists }}
       version: ${{ steps.setver.outputs.version }}
-      title: ${{ steps.setver.outputs.title }}
-      changelog: ${{ steps.setver.outputs.changelog }}
     steps:
-      - name: Get latest Aseprite release info
+      - name: Get latest Aseprite release version
         id: setver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_info=$(gh release view --repo aseprite/aseprite --json tagName,name,body)
-          TAG=$(echo "$release_info" | jq -r .tagName)
+          TAG=$(gh release view --repo aseprite/aseprite --json tagName -q .tagName)
           VER=${TAG#v}
-          TITLE=$(echo "$release_info" | jq -r .name)
-          CHANGELOG=$(echo "$release_info" | jq -r .body)
-          
           echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "title=$TITLE" >> $GITHUB_OUTPUT
-          
-          # Escape newlines for multiline output
-          CHANGELOG="${CHANGELOG//'%'/'%25'}"
-          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
-          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
-          echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
 
       - name: Check for existing release in target repo
         id: check
@@ -45,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.setver.outputs.version }}"
-          if gh release view "$TAG" --repo USLTD/aseprite-builds >/dev/null 2>&1; then
+          if gh release view "$TAG" -R USLTD/aseprite-builds >/dev/null 2>&1; then
             echo "Release $TAG already exists."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
@@ -80,7 +67,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sccache-
 
-
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.8
 
@@ -89,7 +75,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $source_url = gh release view "v${{ env.VERSION }}" --repo aseprite/aseprite --json assets --jq '.assets[] | select(.name | test("Aseprite-v.+-Source.zip$")) | .url'
+          $source_url = gh release view "v${{ env.VERSION }}" -R aseprite/aseprite --json assets --jq '.assets[] | select(.name | test("Aseprite-v.+-Source.zip$")) | .url'
           if ([string]::IsNullOrEmpty($source_url)) {
             Write-Error "Could not find Aseprite source zip in release assets."
             exit 1
@@ -97,14 +83,12 @@ jobs:
           Invoke-WebRequest -Uri $source_url -OutFile Source.zip
 
       - name: Unzip Source
-        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path C:\aseprite -Force | Out-Null
           Expand-Archive -Path "Source.zip" -DestinationPath C:\aseprite -Force
 
       - name: Download Skia
-        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           $url = if ("${{ matrix.arch }}" -eq "x64") {
@@ -115,20 +99,17 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile "Skia.zip"
 
       - name: Unzip Skia
-        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path C:\deps\skia -Force | Out-Null
           Expand-Archive -Path "Skia.zip" -DestinationPath C:\deps\skia -Force
 
       - name: Setup MSVC
-        if: env.SKIP != 'true'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch }}
 
       - name: Configure build
-        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           $archDir = if ("${{ matrix.arch }}" -eq "x64") { "Release-x64" } else { "Release-x86" }
@@ -148,7 +129,6 @@ jobs:
             -DCMAKE_CXX_FLAGS="/FS"
 
       - name: Build aseprite
-        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           Push-Location C:\aseprite\build
@@ -182,27 +162,3 @@ jobs:
         with:
           name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin
-
-  release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [precheck, build]
-    if: needs.precheck.outputs.exists != 'true'
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHANGELOG: ${{ needs.precheck.outputs.changelog }}
-        run: |
-          gh release create "v${{ needs.precheck.outputs.version }}" \
-            -R USLTD/aseprite-builds \
-            --title "${{ needs.precheck.outputs.title }}" \
-            --notes-file <(echo "$CHANGELOG") \
-            artifacts/aseprite-v${{ needs.precheck.outputs.version }}-windows-x64/* \
-            artifacts/aseprite-v${{ needs.precheck.outputs.version }}-windows-x86/*
-          echo "Release v${{ needs.precheck.outputs.version }} created."
