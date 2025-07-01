@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Get latest Aseprite release info
+        id: setver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_info=$(gh release view --repo aseprite/aseprite --json tagName,name,body)
+          TAG=$(echo "$release_info" | jq -r .tagName)
+          VER=${TAG#v}
+          TITLE=$(echo "$release_info" | jq -r .name)
+          CHANGELOG=$(echo "$release_info" | jq -r .body)
+          
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          
+          {
+            echo "changelog<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts from build workflow
+        uses: actions/download-artifact@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG: ${{ steps.setver.outputs.changelog }}
+        run: |
+          gh release create "v${{ steps.setver.outputs.version }}" \
+            -R USLTD/aseprite-builds \
+            --title "${{ steps.setver.outputs.title }}" \
+            --notes-file <(echo "$CHANGELOG") \
+            artifacts/aseprite-v${{ steps.setver.outputs.version }}-windows-x64/* \
+            artifacts/aseprite-v${{ steps.setver.outputs.version }}-windows-x86/*
+          echo "Release v${{ steps.setver.outputs.version }} created."
