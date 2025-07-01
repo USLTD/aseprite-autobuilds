@@ -12,8 +12,8 @@ on:
         required: true
 
 permissions:
-  actions: read   # To read artifacts from the triggering workflow
-  contents: write # To create the GitHub Release
+  actions: read
+  contents: write
 
 jobs:
   release:
@@ -26,7 +26,7 @@ jobs:
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }} # Standard token is fine for downloading from the same repo
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           run-id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
           path: artifacts
@@ -35,6 +35,7 @@ jobs:
         if: steps.download.outcome == 'success'
         id: version
         run: |
+          # Grep the directory name to find the version string
           VERSION=$(ls artifacts | grep -oP 'aseprite-v\K[^-]*' | head -n 1)
           
           if [ -z "$VERSION" ]; then
@@ -50,7 +51,6 @@ jobs:
         if: steps.version.outputs.version_found == 'true'
         id: setver
         env:
-          # Use the PAT for this step to query the private repo if needed, though aseprite/aseprite is public
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           release_info=$(gh release view "v${{ steps.version.outputs.version }}" --repo aseprite/aseprite --json name,body)
@@ -58,16 +58,27 @@ jobs:
           CHANGELOG=$(echo "$release_info" | jq -r .body)
           
           echo "title=$TITLE" >> $GITHUB_OUTPUT
+          # Use a heredoc to safely pass the multiline changelog to the output
           {
             echo "changelog<<EOF"
             echo "$CHANGELOG"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Create ZIP archives from artifact directories
+        if: steps.version.outputs.version_found == 'true'
+        run: |
+          # The download-artifact action creates a directory for each artifact.
+          # We will go into the 'artifacts' directory and zip each of those directories.
+          cd artifacts
+          for dir in */; do
+            # Create a zip file named after the directory, removing the trailing slash
+            zip -r "${dir%/}.zip" "$dir"
+          done
+
       - name: Create Release in private repo
         if: steps.version.outputs.version_found == 'true'
         env:
-          # IMPORTANT: Use the PAT for authentication to create the release
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           CHANGELOG: ${{ steps.setver.outputs.changelog }}
         run: |
@@ -76,6 +87,5 @@ jobs:
             -R USLTD/aseprite-builds \
             --title "${{ steps.setver.outputs.title }}" \
             --notes-file <(echo "$CHANGELOG") \
-            artifacts/aseprite-v$VERSION-windows-x64/* \
-            artifacts/aseprite-v$VERSION-windows-x86/*
+            artifacts/*.zip
           echo "Release v$VERSION created in USLTD/aseprite-builds."
