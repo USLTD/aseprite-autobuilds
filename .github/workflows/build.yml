@@ -177,10 +177,11 @@ jobs:
             Copy-Item -Path $libcrypto -Destination "./bin"
           }
 
-      - name: Upload bin directory for release
+      - name: Upload bin directory
+        if: env.SKIP != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: bin-${{ matrix.arch }}
+          name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin
 
   release:
