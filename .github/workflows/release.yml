@@ -21,26 +21,49 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
+      - name: Get triggering workflow run ID
+        id: run_info
+        run: |
+          # If manually dispatched, use the provided run_id. Otherwise, get it from the workflow_run event.
+          RUN_ID=${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+      - name: Get version from artifact name
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the list of artifacts from the workflow run
+          artifacts_json=$(gh api "repos/${{ github.repository }}/actions/runs/${{ steps.run_info.outputs.run_id }}/artifacts")
+          
+          # Find the first artifact that matches the expected pattern and extract the version number
+          VERSION=$(echo "$artifacts_json" | jq -r '.artifacts[] | .name' | sed -n 's/aseprite-v\([^-]*\)-windows-.*/\1/p' | head -n 1)
+          
+          if [ -z "$VERSION" ]; then
+            echo "No build artifacts found for workflow run ${{ steps.run_info.outputs.run_id }}. Nothing to release."
+            echo "version_found=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found version $VERSION to release."
+            echo "version_found=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download artifacts from build workflow
+        if: steps.version.outputs.version_found == 'true'
         uses: actions/download-artifact@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          run_id: ${{ steps.run_info.outputs.run_id }}
           path: artifacts
 
-      - name: Get latest Aseprite release info
+      - name: Get Aseprite release info
+        if: steps.version.outputs.version_found == 'true'
         id: setver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # The artifact directory contains the version number.
-          # We find the first directory in 'artifacts' and parse the version from its name.
-          ARTIFACT_DIR_NAME=$(ls -d artifacts/*/ | head -n 1)
-          VERSION=$(echo "$ARTIFACT_DIR_NAME" | sed -n 's/.*aseprite-v\([^-]*\)-.*/\1/p')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
           # Fetch the corresponding release info from aseprite/aseprite
-          release_info=$(gh release view "v$VERSION" --repo aseprite/aseprite --json name,body)
+          release_info=$(gh release view "v${{ steps.version.outputs.version }}" --repo aseprite/aseprite --json name,body)
           TITLE=$(echo "$release_info" | jq -r .name)
           CHANGELOG=$(echo "$release_info" | jq -r .body)
           
@@ -52,11 +75,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Release
+        if: steps.version.outputs.version_found == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANGELOG: ${{ steps.setver.outputs.changelog }}
         run: |
-          VERSION="${{ steps.setver.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           gh release create "v$VERSION" \
             -R USLTD/aseprite-builds \
             --title "${{ steps.setver.outputs.title }}" \
