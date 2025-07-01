@@ -35,7 +35,6 @@ jobs:
         if: steps.download.outcome == 'success'
         id: version
         run: |
-          # Grep the directory name to find the version string
           VERSION=$(ls artifacts | grep -oP 'aseprite-v\K[^-]*' | head -n 1)
           
           if [ -z "$VERSION" ]; then
@@ -58,22 +57,25 @@ jobs:
           CHANGELOG=$(echo "$release_info" | jq -r .body)
           
           echo "title=$TITLE" >> $GITHUB_OUTPUT
-          # Use a heredoc to safely pass the multiline changelog to the output
           {
             echo "changelog<<EOF"
             echo "$CHANGELOG"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create ZIP archives from artifact directories
+      - name: Create single-depth ZIP archives
         if: steps.version.outputs.version_found == 'true'
         run: |
-          # The download-artifact action creates a directory for each artifact.
-          # We will go into the 'artifacts' directory and zip each of those directories.
+          # Go into the parent directory for the downloaded artifacts
           cd artifacts
+          # Loop through each downloaded artifact directory (e.g., aseprite-v1.3.14.2-windows-x64/)
           for dir in */; do
-            # Create a zip file named after the directory, removing the trailing slash
-            zip -r "${dir%/}.zip" "$dir"
+            # Name of the output zip file (e.g., aseprite-v1.3.14.2-windows-x64.zip)
+            zip_file_name="${dir%/}.zip"
+            echo "Creating $zip_file_name..."
+            # Go into the artifact directory and zip its *contents*
+            # The subshell ( ... ) ensures `cd` doesn't affect the loop
+            (cd "$dir" && zip -r "../$zip_file_name" .)
           done
 
       - name: Create Release in private repo
