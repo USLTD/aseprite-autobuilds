@@ -24,13 +24,14 @@ jobs:
       - name: Download artifacts from build workflow
         id: download
         uses: actions/download-artifact@v4
+        # This is a step-level keyword to prevent the job from failing if no artifacts are found
+        continue-on-error: true
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Corrected input names with hyphens
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run_id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          run-id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
           path: artifacts
-          # Continue even if no artifacts are found, so we can handle it gracefully
-          continue-on-error: true
 
       - name: Get version from artifact directory
         if: steps.download.outcome == 'success'
