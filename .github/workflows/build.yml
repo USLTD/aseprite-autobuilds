@@ -177,12 +177,21 @@ jobs:
             Copy-Item -Path $libcrypto -Destination "./bin"
           }
 
-      - name: Upload bin directory
+      - name: Create Zip Archive
+        if: env.SKIP != 'true'
+        shell: pwsh
+        run: |
+          $artifactName = "aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}"
+          Compress-Archive -Path C:\aseprite\build\bin\* -DestinationPath "C:\aseprite\build\$artifactName.zip"
+          echo "artifact_path=C:\aseprite\build\$artifactName.zip" >> $GITHUB_OUTPUT
+        id: zip_artifact
+
+      - name: Upload artifact for release
         if: env.SKIP != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
-          path: C:\aseprite\build\bin
+          path: ${{ steps.zip_artifact.outputs.artifact_path }}
 
   release:
     name: Create GitHub Release
@@ -203,6 +212,5 @@ jobs:
             --repo USLTD/aseprite-builds \
             --title "${{ needs.precheck.outputs.title }}" \
             --notes "${{ needs.precheck.outputs.changelog }}" \
-            artifacts/bin-x64/* \
-            artifacts/bin-x86/*
+            artifacts/**/*.zip
           echo "Release v${{ needs.precheck.outputs.version }} created."
