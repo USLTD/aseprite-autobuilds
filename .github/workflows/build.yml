@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.setver.outputs.version }}"
-          if gh release view "$TAG" -R USLTD/aseprite-builds >/dev/null 2>&1; then
+          if [[ $(gh release list --repo USLTD/aseprite-builds --json tagName --jq ".[] | select(.tagName == \"$TAG\")") ]]; then
             echo "Release $TAG already exists."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
