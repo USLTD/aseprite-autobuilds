@@ -29,7 +29,7 @@ jobs:
       - name: Check for existing release in target repo
         id: check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           TAG="v${{ steps.setver.outputs.version }}"
           if [[ $(gh release list --repo USLTD/aseprite-builds --json tagName --jq ".[] | select(.tagName == \"$TAG\")") ]]; then
