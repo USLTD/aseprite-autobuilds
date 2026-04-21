@@ -2,13 +2,13 @@ name: Release
 
 on:
   workflow_run:
-    workflows: ["Build"]
+    workflows: ["Build", "Build Preview"]
     types:
       - completed
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'The ID of the "Build" workflow run to release.'
+        description: 'The ID of the "Build" or "Build Preview" workflow run to release.'
         required: true
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
         if: steps.download.outcome == 'success'
         id: version
         run: |
-          VERSION=$(ls artifacts | grep -oP 'aseprite-v\K[^-]*' | head -n 1)
+          VERSION=$(ls artifacts | sed -n 's/^aseprite-v\(.*\)-windows.*/\1/p' | head -n 1)
           
           if [ -z "$VERSION" ]; then
             echo "Could not determine version from downloaded artifacts. No release will be created."
@@ -52,11 +52,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          release_info=$(gh release view "v${{ steps.version.outputs.version }}" --repo aseprite/aseprite --json name,body)
+          release_info=$(gh release view "v${{ steps.version.outputs.version }}" --repo aseprite/aseprite --json name,body,prerelease)
           TITLE=$(echo "$release_info" | jq -r .name)
           CHANGELOG=$(echo "$release_info" | jq -r .body)
+          PRERELEASE=$(echo "$release_info" | jq -r .prerelease)
           
           echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
           {
             echo "changelog<<EOF"
             echo "$CHANGELOG"
@@ -85,9 +87,14 @@ jobs:
           CHANGELOG: ${{ steps.setver.outputs.changelog }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          PRERELEASE_FLAG=""
+          if [[ "${{ steps.setver.outputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "v$VERSION" \
             -R USLTD/aseprite-builds \
             --title "${{ steps.setver.outputs.title }}" \
             --notes-file <(echo "$CHANGELOG") \
+            $PRERELEASE_FLAG \
             artifacts/*.zip
           echo "Release v$VERSION created in USLTD/aseprite-builds."
