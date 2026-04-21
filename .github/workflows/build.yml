@@ -34,6 +34,12 @@ jobs:
             TAG=$(gh release view --repo aseprite/aseprite --json tagName -q .tagName)
             VER=${TAG#v}
           fi
+
+          if [[ ! "$VER" =~ ^[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?$ ]]; then
+            echo "Invalid version '$VER'. Expected a version like 1.3.17 or 1.3.17.1 (optionally prefixed with 'v')." >&2
+            exit 1
+          fi
+
           echo "version=$VER" >> $GITHUB_OUTPUT
 
       - name: Decide Skia tag

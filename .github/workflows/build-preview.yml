@@ -31,13 +31,19 @@ jobs:
           if [[ -n "$INPUT_VERSION" ]]; then
             VER="${INPUT_VERSION#v}"
           else
-            TAG=$(gh api repos/aseprite/aseprite/releases --paginate --jq '.[] | select(.prerelease) | .tag_name' | head -n 1)
+            TAG=$(gh api 'repos/aseprite/aseprite/releases?per_page=100' --jq 'map(select(.prerelease))[0].tag_name // empty')
             if [[ -z "$TAG" ]]; then
               echo "No preview releases found."
               exit 1
             fi
             VER=${TAG#v}
           fi
+
+          if [[ ! "$VER" =~ ^[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?$ ]]; then
+            echo "Invalid version '$VER'. Expected a version like 1.3.17 or 1.3.17.1 (optionally prefixed with 'v')." >&2
+            exit 1
+          fi
+
           echo "version=$VER" >> $GITHUB_OUTPUT
 
       - name: Decide Skia tag
