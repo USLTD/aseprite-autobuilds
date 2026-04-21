@@ -20,6 +20,7 @@ jobs:
     outputs:
       exists: ${{ steps.check.outputs.exists }}
       version: ${{ steps.setver.outputs.version }}
+      skia_tag: ${{ steps.setskia.outputs.skia_tag }}
     steps:
       - name: Get latest Aseprite release version
         id: setver
@@ -34,6 +35,18 @@ jobs:
             VER=${TAG#v}
           fi
           echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Decide Skia tag
+        id: setskia
+        run: |
+          PIN_VERSION="1.3.17.1"
+          VERSION="${{ steps.setver.outputs.version }}"
+          SKIA_TAG="latest"
+          if [[ "$(printf '%s\n%s\n' "$VERSION" "$PIN_VERSION" | sort -V | head -n1)" == "$VERSION" ]]; then
+            SKIA_TAG="aseprite-m124"
+          fi
+          echo "Using Skia tag: $SKIA_TAG"
+          echo "skia_tag=$SKIA_TAG" >> $GITHUB_OUTPUT
 
       - name: Check for existing release in target repo
         id: check
@@ -60,6 +73,7 @@ jobs:
     env:
       VERSION: ${{ needs.precheck.outputs.version }}
       SCCACHE_GHA_ENABLED: "true"
+      SKIA_TAG: ${{ needs.precheck.outputs.skia_tag }}
 
     steps:
       - name: Checkout repository
@@ -100,10 +114,11 @@ jobs:
       - name: Download Skia
         shell: pwsh
         run: |
+          $tag = "${{ env.SKIA_TAG }}"
           $url = if ("${{ matrix.arch }}" -eq "x64") {
-            'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x64.zip'
+            if ($tag -eq 'latest') { 'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x64.zip' } else { "https://github.com/aseprite/skia/releases/download/$tag/Skia-Windows-Release-x64.zip" }
           } else {
-            'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x86.zip'
+            if ($tag -eq 'latest') { 'https://github.com/aseprite/skia/releases/latest/download/Skia-Windows-Release-x86.zip' } else { "https://github.com/aseprite/skia/releases/download/$tag/Skia-Windows-Release-x86.zip" }
           }
           Invoke-WebRequest -Uri $url -OutFile "Skia.zip"
 
