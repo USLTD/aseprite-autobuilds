@@ -8,7 +8,7 @@ on:
         required: false
   schedule:
     # run every 24 hours
-    - cron: '30 */24 * * *'
+    - cron: '0 0/23 * * *'
 
 permissions:
   contents: read
@@ -183,3 +183,11 @@ jobs:
         with:
           name: aseprite-v${{ env.VERSION }}-windows-${{ matrix.arch }}
           path: C:\aseprite\build\bin
+          
+  workflow-keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: liskin/gh-workflow-keepalive@v1
